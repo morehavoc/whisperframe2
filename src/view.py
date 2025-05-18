@@ -84,7 +84,9 @@ def signal_handler(sig, frame):
     sys.exit(0)
 
 if __name__ == '__main__':
-    #browser_process = subprocess.Popen(['chromium', '-kiosk', 'http://localhost:5000'])
-    #signal.signal(signal.SIGINT, signal_handler)
-    #signal.signal(signal.SIGTERM, signal_handler)
+    if settings.START_BROWSER:
+        # Start the browser in kiosk mode
+        browser_process = subprocess.Popen(['chromium', '-kiosk', 'http://localhost:5000'])
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
     app.run(host="0.0.0.0", debug=True)

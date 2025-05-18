@@ -16,6 +16,9 @@ PV_ACCESS_KEY = os.getenv('PV_ACCESS_KEY')
 INPUT_DEVICE_ID = int(os.getenv('INPUT_DEVICE_ID', '0'))
 ENABLE_LEDS = os.getenv('ENABLE_LEDS', 'false').lower() == 'true'
 
+# Browser settings
+START_BROWSER = os.getenv('START_BROWSER', 'false').lower() == 'true'
+
 # File paths
 TRANSCRIPT_FILE = "db/transcript.txt"
 DB_FILE = "db/prompts.json"

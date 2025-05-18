@@ -1,4 +1,3 @@
-import pvcobra
 import sys
 import collections
 import wave
@@ -7,9 +6,10 @@ import time
 import struct
 import openai
 import os
+import webrtcvad
 
 TEMP_WAVE_FILE = "output.wav"
-RUNNING_SUM_COUNT = 3
+RUNNING_SUM_COUNT = 5  # Looking at 5 frames (150ms at 30ms per frame)
 MAX_TRANSCRIPT_LINES = 120  # About 1 hour of transcript (15s recordings every ~30s)
 
 def _openai_background(openai_api_key):
@@ -18,34 +18,46 @@ def _openai_background(openai_api_key):
     client = openai.OpenAI(api_key=openai_api_key)
     with open(TEMP_WAVE_FILE, 'rb') as af:
         transcript = client.audio.transcriptions.create(
-            model="whisper-1",
-            file=af
+            model="gpt-4o-transcribe", 
+            file=af, 
+            response_format="text",
+            prompt="The following is some audio that needs transcription. If you don't know what is being said or if the audio is blank return nothing (an empty result)."
         )
-        return str(transcript.text)
+        print(transcript)
+        return str(transcript)
 
 mpPool = multiprocessing.Pool(1)
 
-def wait_for_voices(cobra, recorder):
+def wait_for_voices(vad, recorder, sample_rate):
     print("Listening...")
-    running_values = collections.deque([0,0,0,0,0], maxlen=RUNNING_SUM_COUNT)
+    running_values = collections.deque([0] * RUNNING_SUM_COUNT, maxlen=RUNNING_SUM_COUNT)
     try:
-        print("Cobra version: %s" % cobra.version)
         recorder.start()
 
         while True:
             pcm = recorder.read()
-
-            voice_probability = cobra.process(pcm)
-            running_values.append(voice_probability)
-            average = sum(running_values)/RUNNING_SUM_COUNT
-            if average > .5:
-                # 5 values in a row where we think there are words so we bail out
-                break
-            percentage = voice_probability * 100
-            bar_length = int((percentage / 10) * 3)
-            empty_length = 30 - bar_length
-            sys.stdout.write("\r[%3d]|%s%s|" % (percentage, '█' * bar_length, ' ' * empty_length))
+            audio_frame = struct.pack("%dh" % len(pcm), *pcm)
+            is_speech = vad.is_speech(audio_frame, sample_rate)
+            
+            running_values.append(1 if is_speech else 0)
+            active_frames = sum(running_values)
+            
+            # Debug output on one line
+            sys.stdout.write("\rFrame: speech=%s values=%s active=%d/%d thresh=%d     " % (
+                is_speech,
+                list(running_values),
+                active_frames,
+                RUNNING_SUM_COUNT,
+                RUNNING_SUM_COUNT  # Now requiring all frames to be speech
+            ))
             sys.stdout.flush()
+            
+            if active_frames == RUNNING_SUM_COUNT:  # All frames must be speech
+                print("\nVoice detected! Starting recording...")
+                break
+            
+            # Add a small delay to make the output more readable
+            time.sleep(0.1)
     except KeyboardInterrupt:
         raise
     finally:

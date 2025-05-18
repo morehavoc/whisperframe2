@@ -3,7 +3,7 @@ from pvrecorder import PvRecorder
 import recording
 import generate
 import settings
-import pvcobra
+import webrtcvad
 import openai
 import os
 import subprocess
@@ -11,6 +11,10 @@ import signal
 import sys
 import leds
 import time
+
+SAMPLE_RATE = 16000
+FRAME_DURATION_MS = 30
+FRAME_LENGTH = int(SAMPLE_RATE * FRAME_DURATION_MS / 1000)  # 480 samples for 30ms at 16kHz
 
 def append_to_transcript(t):
     with open(settings.TRANSCRIPT_FILE, "a") as f:
@@ -20,8 +24,8 @@ def append_to_transcript(t):
 def run():
     openai.api_key = settings.OPENAI_API_KEY
 
-    recorder = PvRecorder(frame_length=512, device_index=settings.INPUT_DEVICE_ID)
-    cobra = pvcobra.create(access_key=settings.PV_ACCESS_KEY)
+    recorder = PvRecorder(frame_length=FRAME_LENGTH, device_index=settings.INPUT_DEVICE_ID)
+    vad = webrtcvad.Vad(3)  # Mode 0 (Quality) - least aggressive
 
     try:
         # Generate an image on start up using the last stuff that was in the transcript
@@ -31,11 +35,11 @@ def run():
 
         while True:
             leds.percent(line_counter/20.0)
-            recording.wait_for_voices(cobra, recorder)
+            recording.wait_for_voices(vad, recorder, SAMPLE_RATE)
             # there should now be voices, so transcribe 15 seconds of audio
             transcript = recording.transcribe_openai(recorder, 15, settings.OPENAI_API_KEY)
 
-            if transcript is not None and transcript != "":
+            if transcript is not None and transcript != "" and transcript != "\n" and transcript.strip() != "":
                 print("* TS:")
                 print(transcript)
                 append_to_transcript(transcript)
@@ -43,7 +47,7 @@ def run():
                 # each time we get a transcript line, we increase the counter by one.
                 # then each time we get 20 new lines, we call generate
                 line_counter+=1
-                if line_counter >= 20:
+                if line_counter >= 2:
                     line_counter = 0
                     generate.run(settings.OPENAI_API_KEY, 20, settings.DB_FILE, settings.TRANSCRIPT_FILE)
                 else:
@@ -53,8 +57,6 @@ def run():
         print("stopping")
         raise e
     finally:
-        if cobra is not None:
-            cobra.delete()
         if recorder is not None:
             recorder.delete()
 

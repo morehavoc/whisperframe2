@@ -3,6 +3,12 @@ import requests
 import time
 from abc import ABC, abstractmethod
 
+class ModerationBlockedException(Exception):
+    """Raised when an image generation request is blocked by the safety system"""
+    def __init__(self, message, original_prompt):
+        super().__init__(message)
+        self.original_prompt = original_prompt
+
 class ImageGenerator(ABC):
     """Base class for image generation providers"""
     
@@ -24,7 +30,8 @@ class CustomAIGenerator(ImageGenerator):
         url = f"{self.endpoint_url}/api/GenerateImage?code={self.auth_code}"
         data = {
             "group": "whisperframe",
-            "type": "whisperframe",
+            "type": "raw",
+            "size": "1536x1024",
             "details": prompt
         }
         print(url)
@@ -57,6 +64,14 @@ class CustomAIGenerator(ImageGenerator):
                     continue
                 
                 else:
+                    # Check for moderation block error
+                    try:
+                        error_data = resp.json()
+                        if error_data.get("error", {}).get("code") == "moderation_blocked":
+                            raise ModerationBlockedException(error_data["error"]["message"], prompt)
+                    except (ValueError, KeyError):
+                        pass  # Not a JSON response or not the moderation error format
+                    
                     # For any other error status code, fail immediately
                     raise Exception(f"Image generation failed with status {resp.status_code}: {resp.text}")
                     

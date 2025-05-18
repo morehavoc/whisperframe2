@@ -2,7 +2,7 @@ import openai
 import json
 from datetime import datetime
 import settings
-from image_generators import CustomAIGenerator
+from image_generators import CustomAIGenerator, ModerationBlockedException
 import view
 
 def read_all(filename):
@@ -37,6 +37,28 @@ def save_image(prompt, url, artist_name, db_file):
     # Notify WebSocket clients of the new image
     view.notify_clients(data)
 
+def rewrite_prompt_for_safety(client, original_prompt):
+    """Rewrite a prompt that was rejected by the safety system"""
+    print(f"Rewriting prompt for safety: {original_prompt}")
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4.1",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "The following prompt for an image generator was rejected due to safety concerns. Please rewrite it to make it compliant with typical content safety policies, while preserving the core artistic idea as much as possible. Return only the rewritten prompt."
+                },
+                {"role": "user", "content": original_prompt}
+            ],
+            temperature=0.3  # Lower temperature for more focused rewrite
+        )
+        rewritten_prompt = response.choices[0].message.content.strip()
+        print(f"Rewritten prompt: {rewritten_prompt}")
+        return rewritten_prompt
+    except Exception as e:
+        print(f"Error during prompt rewriting: {e}")
+        return None
+
 def run(openai_api_key, num_of_lines, db_file, transcript_file):
     client = openai.OpenAI(api_key=openai_api_key)
     lines = get_last_lines(transcript_file, num_of_lines)
@@ -68,6 +90,48 @@ def run(openai_api_key, num_of_lines, db_file, transcript_file):
     print(artist_name)
 
     print("* Generating")
-    generator = CustomAIGenerator(settings.CUSTOM_AI_ENDPOINT, settings.CUSTOM_AI_CODE)
-    imgurl = generator.generate(prompt)
-    save_image(prompt, imgurl, artist_name, db_file)
+    current_prompt_being_tried = prompt
+    safety_rewrites_performed = 0
+    MAX_SAFETY_REWRITES = 1  # Allow one rewrite attempt
+
+    while True:  # Loop for safety rewrites
+        print(f"Attempting to generate image with prompt: '{current_prompt_being_tried}' (Rewrite #{safety_rewrites_performed})")
+        try:
+            generator = CustomAIGenerator(settings.CUSTOM_AI_ENDPOINT, settings.CUSTOM_AI_CODE)
+            imgurl = generator.generate(current_prompt_being_tried)  # Has internal retries for network/500 errors
+            save_image(current_prompt_being_tried, imgurl, artist_name, db_file)
+            print("  Image generated successfully.")
+            return  # SUCCESS
+        except ModerationBlockedException as mbe:
+            print(f"  Moderation system blocked prompt: {mbe.original_prompt}")
+            if safety_rewrites_performed < MAX_SAFETY_REWRITES:
+                print("  Attempting to rewrite...")
+                new_prompt = rewrite_prompt_for_safety(client, current_prompt_being_tried)
+                if new_prompt and new_prompt != current_prompt_being_tried:
+                    current_prompt_being_tried = new_prompt
+                    safety_rewrites_performed += 1
+                    continue  # Try the new prompt
+                else:
+                    print("  Rewrite failed or produced the same prompt. Aborting.")
+                    return  # FAILURE
+            else:
+                print("  Max safety rewrites reached. Aborting.")
+                return  # FAILURE
+        except Exception as e:  # Other errors from generator.generate() after its internal retries
+            print(f"  Image generation failed for prompt '{current_prompt_being_tried}': {e}")
+            # If a prompt version fails with a general error, we give up on it.
+            # If no more rewrites are allowed, we give up entirely.
+            if safety_rewrites_performed >= MAX_SAFETY_REWRITES:
+                print("  No more safety rewrites possible. Aborting.")
+                return  # FAILURE
+            else:
+                # This means the current prompt failed its attempt.
+                # We only rewrite on ModerationBlocked. So, if a prompt fails general attempts, it's done.
+                print(f"  Prompt '{current_prompt_being_tried}' failed. Aborting as we only rewrite on moderation blocks.")
+                return  # FAILURE
+        
+        # Should not be reached if logic is correct
+        if safety_rewrites_performed >= MAX_SAFETY_REWRITES:  # Ensure loop terminates
+            break
+    
+    print("Image generation ultimately failed.")  # Fallback message

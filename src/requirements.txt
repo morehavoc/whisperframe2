@@ -1,10 +1,8 @@
-pvcobra==2.0.5
-pvporcupine==2.1.1
 pvrecorder==1.2.7
-pvrhino==2.1.1
 PyAudio==0.2.14
 adafruit-io==2.8.0
 flask-sock==0.6.0
 openai==1.78.0
 dotenv==0.9.9
 setuptools==78.1.0
+webrtcvad==2.0.10
