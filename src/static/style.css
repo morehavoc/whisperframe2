@@ -1,0 +1,26 @@
+body {
+    transition: background-image 1s ease-in-out;
+    background: black no-repeat center center fixed; 
+    -webkit-background-size: cover;
+    -moz-background-size: cover;
+    -o-background-size: cover;
+    background-size: cover;
+}
+
+#date, #prompt {
+    position: absolute;
+    color: white;
+    padding: 10px;
+    opacity: 0;
+    transition: opacity 1s ease-in-out;
+}
+
+#date {
+    bottom: 0;
+    right: 0;
+    font-size: small;
+}
+
+#prompt {
+    bottom: 0;
+}
