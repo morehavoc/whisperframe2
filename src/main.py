@@ -47,7 +47,7 @@ def run():
                 # each time we get a transcript line, we increase the counter by one.
                 # then each time we get 20 new lines, we call generate
                 line_counter+=1
-                if line_counter >= 2:
+                if line_counter >= 20:
                     line_counter = 0
                     generate.run(settings.OPENAI_API_KEY, 20, settings.DB_FILE, settings.TRANSCRIPT_FILE)
                 else:

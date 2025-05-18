@@ -53,26 +53,33 @@ class CustomAIGenerator(ImageGenerator):
                     print(image_url)
                     return image_url
                 
-                elif resp.status_code == 500:
+                # For any non-2xx response, first check if it's a moderation block
+                try:
+                    error_data = resp.json()
+                    if error_data.get("error", {}).get("code") == "moderation_blocked":
+                        raise ModerationBlockedException(error_data["error"]["message"], prompt)
+                except (ValueError, KeyError):
+                    # Not a JSON response or not the moderation error format,
+                    # so it's not a moderation_blocked error we can parse.
+                    # Proceed to check status code for other errors.
+                    pass 
+                
+                # Now handle specific status codes like 500 for retries,
+                # or other errors.
+                if resp.status_code == 500:
+                    # If we are here, it means it was a 500 but NOT a moderation_blocked error
+                    # (or if it was, ModerationBlockedException was already raised).
                     attempt += 1
                     if attempt > max_retries:
-                        raise Exception(f"Max retries ({max_retries}) exceeded. Last error: {resp.text}")
+                        raise Exception(f"Max retries ({max_retries}) exceeded for 500 error. Last error: {resp.text}")
                     
                     wait_time = initial_wait * (2 ** (attempt - 1))  # exponential backoff
-                    print(f"Got 500 error, attempt {attempt}/{max_retries}. Waiting {wait_time} seconds before retry...")
+                    print(f"Got 500 error (not moderation_blocked), attempt {attempt}/{max_retries}. Waiting {wait_time} seconds before retry...")
                     time.sleep(wait_time)
                     continue
                 
-                else:
-                    # Check for moderation block error
-                    try:
-                        error_data = resp.json()
-                        if error_data.get("error", {}).get("code") == "moderation_blocked":
-                            raise ModerationBlockedException(error_data["error"]["message"], prompt)
-                    except (ValueError, KeyError):
-                        pass  # Not a JSON response or not the moderation error format
-                    
-                    # For any other error status code, fail immediately
+                else: # For any other error status code (not 2xx, not 500, and not moderation_blocked)
+                    # This 'else' now covers non-2xx, non-500 errors that weren't moderation blocks.
                     raise Exception(f"Image generation failed with status {resp.status_code}: {resp.text}")
                     
             except requests.exceptions.RequestException as e:

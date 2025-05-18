@@ -43,14 +43,14 @@ def wait_for_voices(vad, recorder, sample_rate):
             active_frames = sum(running_values)
             
             # Debug output on one line
-            sys.stdout.write("\rFrame: speech=%s values=%s active=%d/%d thresh=%d     " % (
-                is_speech,
-                list(running_values),
-                active_frames,
-                RUNNING_SUM_COUNT,
-                RUNNING_SUM_COUNT  # Now requiring all frames to be speech
-            ))
-            sys.stdout.flush()
+            # sys.stdout.write("\rFrame: speech=%s values=%s active=%d/%d thresh=%d     " % (
+            #     is_speech,
+            #     list(running_values),
+            #     active_frames,
+            #     RUNNING_SUM_COUNT,
+            #     RUNNING_SUM_COUNT  # Now requiring all frames to be speech
+            # ))
+            # sys.stdout.flush()
             
             if active_frames == RUNNING_SUM_COUNT:  # All frames must be speech
                 print("\nVoice detected! Starting recording...")
