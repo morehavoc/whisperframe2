@@ -18,12 +18,13 @@ Avoid controversial topics that would vilate the OpenAI terms of service.
 
 When in doubt, have fun and make it qute or overly realistic.
 
+Don't name a specific artist, name a style or branch of art based on an artist that might be appropriate.
+
 Each prompt needs to contain the following elements:
 
 Subject
 Medium
 Style
-Artist
 Additional details
 
 The prompt should be in sentence form. Only write sentences, do not create a list, or bullet points.

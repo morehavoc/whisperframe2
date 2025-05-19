@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, render_template, request
 import json
 import random
 import subprocess
@@ -82,6 +82,16 @@ def signal_handler(sig, frame):
     print('Stopping Flask app and closing browser')
     browser_process.terminate()
     sys.exit(0)
+
+@app.route('/_internal/notify_new_image', methods=['POST'])
+def handle_new_image_notification():
+    """Internal endpoint for receiving new image notifications from generate.py"""
+    if not request.is_json:
+        return jsonify({"error": "Content-Type must be application/json"}), 400
+    
+    data = request.json
+    notify_clients(data)
+    return jsonify({"status": "notified"}), 200
 
 if __name__ == '__main__':
     if settings.START_BROWSER:

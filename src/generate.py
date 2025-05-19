@@ -3,6 +3,7 @@ import json
 from datetime import datetime
 import settings
 from image_generators import CustomAIGenerator, ModerationBlockedException
+import requests
 import view
 
 def read_all(filename):
@@ -13,6 +14,18 @@ def get_last_lines(transcript_file, num_of_lines):
     with open(transcript_file, "r") as f:
         lines = f.readlines()
         return "\n".join(lines[-num_of_lines:])
+
+def _notify_view_app(data):
+    """Send notification to view.py about new image via HTTP request"""
+    try:
+        response = requests.post(
+            "http://localhost:5000/_internal/notify_new_image",
+            json=data,
+            timeout=2  # Short timeout for local request
+        )
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        print(f"Warning: Failed to notify view app about new image: {e}")
 
 def save_image(prompt, url, artist_name, db_file):
     data = {
@@ -34,8 +47,8 @@ def save_image(prompt, url, artist_name, db_file):
     with open(db_file, "w") as f:
         json.dump(existing_data, f, ensure_ascii=False, indent=4)
         
-    # Notify WebSocket clients of the new image
-    view.notify_clients(data)
+    # Notify view.py about the new image via HTTP
+    _notify_view_app(data)
 
 def rewrite_prompt_for_safety(client, original_prompt):
     """Rewrite a prompt that was rejected by the safety system"""
@@ -46,11 +59,10 @@ def rewrite_prompt_for_safety(client, original_prompt):
             messages=[
                 {
                     "role": "system",
-                    "content": "The following prompt for an image generator was rejected due to safety concerns. Please rewrite it to make it compliant with typical content safety policies, while preserving the core artistic idea as much as possible. Return only the rewritten prompt."
+                    "content": "The following prompt for an image generator was rejected due to safety concerns. Please rewrite it to make it compliant with typical content safety policies, while preserving the core artistic idea as much as possible. Return only the rewritten prompt. When possible make the new prompt as simple as possible."
                 },
                 {"role": "user", "content": original_prompt}
-            ],
-            temperature=0.3  # Lower temperature for more focused rewrite
+            ]
         )
         rewritten_prompt = response.choices[0].message.content.strip()
         print(f"Rewritten prompt: {rewritten_prompt}")
