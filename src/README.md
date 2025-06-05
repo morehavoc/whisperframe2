@@ -1,103 +1,368 @@
-# whisper-frame
+# WhisperFrame Setup & Configuration Guide
 
-A set of Python scripts that together allow the raspberry pi to:
+This guide covers the technical setup, configuration, and troubleshooting for WhisperFrame. For an overview of how the system works, see the [main README](../README.md).
 
-1. Listen to conversations around it and record 15-second snippets of them
-2. Call OpenAI's Speech2Text service to transcribe those 15-second snippets and store them
-3. Periodically, use GPT-4 to create an image generation prompt for stable-diffusion, and generate that image
-4. If there has been an image generated in the last 30 minutes, show that image (checking every 5 minutes).
-5. If there has not been an image in the last 30 minutes, then select a random one from the database and display that.
+## 🚀 Quick Start
 
-## Current Limitations
+### Prerequisites
+- Raspberry Pi 4 (4GB+ recommended) with Raspberry Pi OS
+- **Any microphone** (USB microphone or ReSpeaker 4-Mic HAT)
+- Python 3.8+ with pip
+- Internet connection for API calls
 
-* It currently calls OpenAI's Speech2Text service instead of using a local whisper instance. The Pi just isn't powerful enough to run a large ML model like Whisper (even the smaller ones struggle). So, more hardware or running our own "instance" of the Whisper model on another computer would save some money here.
-* The display randomly selects an image that has been generated, so it could show something from a long time ago.
-* The entire conversation is not converted, only 15-second snippets, typically separated by about 10-20 seconds. So it is really just samples of the entire conversation.
-* Silence is transcribed as some Japanese characters that roughly translate into "thank you for watching, please like and subscribe". Clearly, it was trained on lots of YouTube videos.
-* Probably some other things too.
+### 1. Hardware Setup
 
-## Large Moving Parts
-
-* `main.py` - The file that you run, e.g. `python3 main.py`
-* `recording.py` - Listens for words, records and transcribes the audio. Transcriptions are appended to `db/transcript.txt`
-* `generate.py` - Grabs the last 20 lines of `db/transcript.txt`, generates a prompt, and generates an image. the image URL, prompt and date stamp to the image is appended to `db/prompts.json`
-* `view.py` - Runs a Flask web server that hosts an html page. The HTML page requests an image from the `/image` endpoint every 5 minutes. The `/image` endpoint shows the most recent image from `db/prompts.json` if that file has been modified in the last 30 minutes, otherwise, it selects a random image from `db/prompts.json`.
-
-## File descriptions
-
-### `main.py`
-
-The main app that you run. This contains a `while True` loop that:
-1. waits for voices to be found using picovoice
-2. records a 15-second snippet (and transcribe it)
-3. counts the number of snippets
-4. Every 20 snippets, generate a new image
-
-Roughly, this means that a new image is generated every 5 minutes during normal conversation.
-
-This script also starts the flask server (`view.py`) as a sub-process and attaches the termination signals to it so that it will shut down when this script shuts down.
-
-### `generate.py`
-
-Pulls the last 20 lines of `db/transcript.txt` and combines that with the information in the prompts directory to create a GPT4 prompt to generate a stable diffusion prompt. It then passes that on to stable diffusion for rendering. The resulting image URL, prompt and datetime is appended to `db/prompts.json`
-
-### `output.wav`
-
-The temporary audio file is saved by `recording.py` during its process.
-
-### `prompts`
-A set of text files used to construct the GPT prompt. Currently, system.txt is set as the system prompt then example_1.txt and example_result_1.txt are set as the first User and Assistant inputs, then the current transcript is set as the next User input, then sent to GPT. GPT then generates the Assistant result that contains the prompt for stable-diffusion.
-
-The idea here was that there might be a couple of different sets of "example" pairs (2, 3, 4, etc.) that would generate slightly different prompts. Then `generate.py` could randomly select one of these as an example to send to GPT.
-
-### `recording.py`
-
-Contains methods to wait for voices and to record/transcribe the audio. The Call to OpenAI to transcribe the audio sometimes randomly just never returns a result. To help combat this, it runs in a background thread with a timeout so that if it just goes away, we will eventually get a no result back and we can just go on as though it never happened. This is okay with me b/c we are just sampling the conversation anyway, so missing an occasional snippet is fine.
-
-### `templates`
-
-Html templates folder for `view.py`. Contains the `index.html` file that requests a new image every 5 mins.
-
-### `db/transcript.txt`
-
-Contains transcriptions appended together in a text file. Each line is the result of a transcription of a 15-second snippet of recording.
-
-### `db/prompts.json`
-
-A list of objects, where each object contains the image URL, prompt and datestamp. They are stored in date order so the last one in the list is the most recent.
-
-### `view.py`
-
-Runs a flask server that hosts `/` and `/image`. `/` will return the index. html file, which requests an image from `/image` and renders it, it repeats that process every 5 minutes. `/image` returns a random image from `db/prompts.json`.
-
-Each time a request to the `/image` endpoint happens, the result is also published to the `ADAFRUIT_IO_FEED` from settings so that the sign can pick it up via MQTT push.
-
-Also starts Chrome in kiosk mode and attaches termination signals to it so that it will all shutdown when this shuts down.
-
-### `requirements.txt`
-
-What I think are the minimum required parts to make this script go (After setup)
-
-### `requirements-freeze.txt`
-
-A full `pip3 freeze > requirements-freeze.txt` output, in case I was wrong.
-
-## Setup
-
-1. Install Python 3
-2. Create a Virtual Env (in the src directory, to make it easy) (windows: `python -m venv .venv`)
-3. Change to the VEnv (`python -m venv .venv`)
-4. Intall dependencies `pip3 install -r requirements.txt`
-
-5. Create a `db` directory in the project root:
+#### Option A: USB Microphone (Recommended)
 ```bash
+# Simply plug in your USB microphone - no additional setup required!
+# Test that it's detected:
+python3 main.py --show_audio_devices
+```
+
+Most USB microphones will appear as device 0 or 1. This is the simplest setup option.
+
+#### Option B: ReSpeaker 4-Mic HAT (Advanced)
+Only follow these steps if you're using the ReSpeaker HAT:
+
+```bash
+# Clone and install the voice card drivers
+git clone https://github.com/respeaker/seeed-voicecard
+cd seeed-voicecard
+sudo ./install.sh
+sudo reboot
+```
+
+#### Verify Audio Setup
+```bash
+# Check available audio devices
+python3 main.py --show_audio_devices
+
+# Test recording with your microphone
+arecord -D plughw:0 -c 1 -r 16000 -f S16_LE -d 5 test.wav
+
+# Play back to verify
+aplay test.wav
+```
+
+### 2. Software Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/morehavoc/whisperframe2.git
+cd whisperframe2/src
+
+# Create and activate virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Create database directories
 mkdir db
 touch db/transcript.txt
-touch db/prompts.json
+echo "[]" > db/prompts.json
 ```
 
-6. Copy `.env.example` to `.env` and fill in your API keys:
-```bash
-cp .env.example .env
+### 3. Configuration
+
+Create a `.env` file in the `src/` directory with your API credentials:
+
+```env
+# Required API Keys
+OPENAI_API_KEY=sk-your-openai-api-key-here
+CUSTOM_AI_ENDPOINT=https://your-custom-ai-endpoint.azurewebsites.net
+CUSTOM_AI_CODE=your-function-auth-code
+
+# Hardware Configuration
+INPUT_DEVICE_ID=0
+ENABLE_LEDS=true
+
+# Optional: External Signage
+ADAFRUIT_IO_USERNAME=your-adafruit-username
+ADAFRUIT_IO_KEY=your-adafruit-key
+ADAFRUIT_IO_FEED=whisperframe
+
+# Optional: Browser Control
+START_BROWSER=true
 ```
-7. Run it: `python main.py`
+
+### 4. First Run
+
+```bash
+# Test audio device detection
+python3 main.py --show_audio_devices
+
+# Run the system
+python3 main.py
+```
+
+The system will:
+1. Generate an initial image from any existing transcript
+2. Start the Flask web server on `http://localhost:5000`
+3. Optionally open a browser in kiosk mode
+4. Begin listening for conversations
+
+## 🔧 Detailed Configuration
+
+### Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OPENAI_API_KEY` | Yes | - | OpenAI API key for Whisper and GPT-4 |
+| `CUSTOM_AI_ENDPOINT` | Yes | - | URL of your custom AI image generation endpoint |
+| `CUSTOM_AI_CODE` | Yes | - | Authentication code for the custom endpoint |
+| `INPUT_DEVICE_ID` | No | 0 | Audio input device index (use --show_audio_devices to find) |
+| `ENABLE_LEDS` | No | false | Enable ReSpeaker LED ring progress indicators |
+| `START_BROWSER` | No | false | Automatically start browser in kiosk mode |
+| `ADAFRUIT_IO_USERNAME` | No | - | Username for Adafruit IO external signage |
+| `ADAFRUIT_IO_KEY` | No | - | Key for Adafruit IO |
+| `ADAFRUIT_IO_FEED` | No | whisperframe | Feed name for Adafruit IO |
+
+### Audio Configuration
+
+#### Finding Your Audio Device
+```bash
+python3 main.py --show_audio_devices
+```
+
+This will list available audio devices. USB microphones typically appear as device 0 or 1, while the ReSpeaker HAT appears as device 0 when properly installed.
+
+#### Adjusting Voice Activity Detection
+In `recording.py`, you can adjust the WebRTC VAD sensitivity:
+
+```python
+vad = webrtcvad.Vad(3)  # 0-3, where 3 is most aggressive
+```
+
+- **Mode 0**: Least aggressive, good for quiet environments
+- **Mode 1**: Moderate sensitivity  
+- **Mode 2**: More aggressive, good for noisy environments
+- **Mode 3**: Most aggressive, may pick up background noise
+
+**Note**: USB microphones may require different sensitivity settings than the ReSpeaker HAT due to different pickup patterns and noise characteristics.
+
+#### Audio Not Working
+```bash
+# Check available audio devices
+python3 main.py --show_audio_devices
+
+# For USB microphones:
+arecord -D plughw:0 -c 1 -r 16000 -f S16_LE -d 5 test.wav
+
+# For ReSpeaker HAT:
+arecord -D plughw:0 -c 6 -r 16000 -f S16_LE -d 5 test.wav
+
+# Play back to verify
+aplay test.wav
+```
+
+**USB Microphone Issues:**
+- Ensure the microphone is properly connected and recognized by the system
+- Try different USB ports if the device isn't detected
+- Some microphones may require specific drivers - check manufacturer documentation
+
+**ReSpeaker HAT Issues:**
+- Verify the HAT is properly seated on the GPIO pins
+- Ensure the voice card drivers were installed correctly
+- Check that the device appears in `arecord -l` output
+
+### Prompt Engineering
+
+The system uses several prompt files in the `prompts/` directory:
+
+#### `system.txt`
+Main system prompt that defines the AI's role and constraints. Key elements:
+- Instructs the AI to create concise image descriptions
+- Specifies format requirements (subject, medium, style, details)
+- Sets content guidelines and restrictions
+
+#### `example_1.txt` & `example_result_1.txt`
+Example conversation and corresponding image prompt. Used for few-shot learning to guide the AI's output style.
+
+#### `name_system.txt`
+System prompt for generating creative artist names for each image.
+
+### Customizing Art Generation
+
+#### Adjusting Generation Frequency
+In `main.py`, change the counter threshold:
+```python
+if line_counter >= 20:  # Generate every 20 snippets (~5 minutes)
+```
+
+#### Modifying Conversation Window
+In `generate.py`, adjust how many transcript lines are used:
+```python
+lines = get_last_lines(transcript_file, 20)  # Use last 20 lines
+```
+
+#### Changing Buffer Size
+In `recording.py`, modify the maximum transcript storage:
+```python
+MAX_TRANSCRIPT_LINES = 120  # Keep 120 lines (~10 minutes)
+```
+
+## 🖥️ Display Configuration
+
+### Web Interface Customization
+
+#### HTML Template (`templates/index.html`)
+Minimal template that loads CSS and JavaScript for the display interface.
+
+#### Styling (`static/style.css`)
+- Background image transitions
+- Text overlay positioning and opacity
+- Responsive design elements
+
+#### JavaScript (`static/script.js`)
+- WebSocket connection for real-time updates
+- Periodic image fetching (fallback)
+- Image transition handling
+
+### Display Behavior
+
+The system intelligently chooses which image to display:
+
+1. **Recent Images** (last 30 minutes): Shows the most recent image when conversation is active
+2. **Random Selection**: During quiet periods, randomly selects from historical images
+3. **Night Mode**: Goes dark between midnight and 7 AM
+4. **Seed-based Randomization**: Uses time-based seeding so the same random image is shown for 5-minute intervals
+
+## 🔍 Troubleshooting
+
+### Common Issues
+
+#### Audio Not Working
+```bash
+# Check available audio devices
+python3 main.py --show_audio_devices
+
+# For USB microphones:
+arecord -D plughw:0 -c 1 -r 16000 -f S16_LE -d 5 test.wav
+
+# For ReSpeaker HAT:
+arecord -D plughw:0 -c 6 -r 16000 -f S16_LE -d 5 test.wav
+
+# Play back to verify
+aplay test.wav
+```
+
+**USB Microphone Issues:**
+- Ensure the microphone is properly connected and recognized by the system
+- Try different USB ports if the device isn't detected
+- Some microphones may require specific drivers - check manufacturer documentation
+
+**ReSpeaker HAT Issues:**
+- Verify the HAT is properly seated on the GPIO pins
+- Ensure the voice card drivers were installed correctly
+- Check that the device appears in `arecord -l` output
+
+#### API Errors
+- **OpenAI API**: Verify your API key has sufficient credits and proper permissions
+- **Custom AI Endpoint**: Ensure the endpoint URL and auth code are correct
+- **Network Issues**: Check internet connectivity and firewall settings
+
+#### Image Generation Failures
+- Check the console output for specific error messages
+- Verify the custom AI endpoint is responding
+- Ensure prompts aren't being blocked by safety filters
+
+#### Display Issues
+- Verify Flask server is running on port 5000
+- Check browser console for JavaScript errors
+- Ensure WebSocket connections are working
+
+### Debug Mode
+
+Enable debug logging by modifying `view.py`:
+```python
+app.run(host="0.0.0.0", debug=True)
+```
+
+### Log Files
+
+The system outputs to console. To capture logs:
+```bash
+python3 main.py 2>&1 | tee whisperframe.log
+```
+
+## 🔄 Running as a Service
+
+### Systemd Service (Recommended)
+
+Create `/etc/systemd/system/whisperframe.service`:
+```ini
+[Unit]
+Description=WhisperFrame AI Art Generator
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/whisperframe2/src
+Environment=PATH=/home/pi/whisperframe2/src/.venv/bin
+ExecStart=/home/pi/whisperframe2/src/.venv/bin/python main.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start:
+```bash
+sudo systemctl enable whisperframe
+sudo systemctl start whisperframe
+sudo systemctl status whisperframe
+```
+
+### Auto-start Browser
+
+For kiosk mode, add to `/etc/xdg/lxsession/LXDE-pi/autostart`:
+```
+@chromium-browser --kiosk --disable-infobars http://localhost:5000
+```
+
+## 📊 Performance Optimization
+
+### Raspberry Pi 4 Recommendations
+- Use a high-quality SD card (Class 10 or better)
+- Ensure adequate cooling to prevent throttling
+- Consider overclocking for better performance
+- Use a reliable power supply (official Pi PSU recommended)
+
+### Memory Management
+- The system keeps a rolling buffer of transcripts to manage memory usage
+- Images are stored remotely (Azure) to avoid filling local storage
+- Consider periodic cleanup of old log files
+
+### Network Optimization
+- Use a stable internet connection for API calls
+- Consider local caching for improved reliability
+- Monitor API usage to manage costs
+
+## 🛡️ Security Considerations
+
+- Store API keys securely in `.env` files (never commit to version control)
+- Consider network isolation for the Pi if used in sensitive environments
+- Regularly update dependencies for security patches
+- The system doesn't store conversation content long-term (rolling buffer only)
+
+## 📈 Monitoring & Maintenance
+
+### Health Checks
+- Monitor API call success rates
+- Check disk space usage
+- Verify audio input levels
+- Monitor system temperature and performance
+
+### Regular Maintenance
+- Update dependencies periodically
+- Clean up old log files
+- Backup configuration files
+- Test hardware components
+
+---
+
+For questions about how the system works conceptually, see the [main README](../README.md). For technical issues, check the troubleshooting section above or review the console output for specific error messages.
