@@ -45,7 +45,7 @@ graph TB
     end
     
     subgraph "Feedback & Status"
-        M[LED Ring<br/>Progress Indicator<br/>(Optional)] --> A
+        M["LED Ring<br/>Progress Indicator<br/>(Optional)"] --> A
         K --> N[WebSocket Updates<br/>Real-time Display]
         K --> O[Adafruit IO<br/>Live Website & External Access]
     end
