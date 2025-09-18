@@ -10,6 +10,28 @@ This guide covers the technical setup, configuration, and troubleshooting for Wh
 - Python 3.8+ with pip
 - Internet connection for API calls
 
+### 0. Python Setup
+
+#### Create venv:
+```bash
+python -m venv .venv
+```
+
+#### Activate it:
+```bash
+source .venv/bin/activate
+```
+
+#### Install PyAudio:
+```bash
+sudo apt-get install portaudio19-dev python3-pyaudio
+```
+
+#### Install:
+```bash
+pip install -r requirements.txt
+```
+
 ### 1. Hardware Setup
 
 #### Option A: USB Microphone (Recommended)
@@ -315,6 +337,11 @@ Enable and start:
 sudo systemctl enable whisperframe
 sudo systemctl start whisperframe
 sudo systemctl status whisperframe
+```
+
+For seeing the console log:
+```bash
+sudo journalctl -u whisperframe.service -n 200 --no-pager
 ```
 
 ### Auto-start Browser
